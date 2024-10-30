@@ -16,8 +16,8 @@ def ERROR_UNDEFINED_VARIABLE(var: str):
     print(f"Text: Undefined variable '{var}'")
     sys.exit(1)
     
-def NOT_A_FUNCTION(var: str, var_type: str, context: str):
-    print("\nERROR: NOT_A_FUNCTION")
+def NOT_A_FUNCTION(var: str, var_type: str, context: str = ""):
+    print("\nERROR: ERROR_NOT_A_FUNCTION")
     print(f"Text: Expected a function, but got '{var}' of type '{var_type}' when typechecking '{context}'")
     sys.exit(1)
     
@@ -26,9 +26,9 @@ def ERROR_UNEXPECTED_LAMBDA(var: str, var_type: str):
     print(f"Text: Expected a non-function, but got '{var}' of type '{var_type}'")
     sys.exit(1)
     
-def ERROR_UNEXPECTED_TYPE_FOR_PARAMETER(var_type: str, expected_type: str):
-    print("\nERROR: UNEXPECTED_TYPE_FOR_PARAMETER")
-    print(f"Text: Expected '{expected_type}' but got '{var_type}'")
+def ERROR_UNEXPECTED_TYPE_FOR_PARAMETER(var_type: str, expected_type: str, context: str = ""):
+    print("\nERROR: ERROR_UNEXPECTED_TYPE_FOR_PARAMETER")
+    print(f"Text: Expected '{expected_type}' but got '{var_type}' when typechecking '{context}'")
     sys.exit(1)
 
 def ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(var_type: str, expected_type: str, context: str = ""):
@@ -39,11 +39,12 @@ def ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(var_type: str, expected_type: str, cont
 def to_readable_type(var) -> str:
     if var == stellaParser.TypeNatContext or isinstance(var, stellaParser.TypeNatContext):
         return "Nat"
-    if var == stellaParser.TypeBoolContext:
+    if var == stellaParser.TypeBoolContext or isinstance(var, stellaParser.TypeBoolContext):
         return "Bool"
     if (isinstance(var, Dict)
         or isinstance(var, stellaParser.DeclFunContext)
-        or isinstance(var, stellaParser.TypeFunContext)):
+        or isinstance(var, stellaParser.TypeFunContext)
+        or isinstance(var, stellaParser.AbstractionContext)):
         return "Function"
     if isinstance(var, List):
         if len(var) != 0:
@@ -51,17 +52,53 @@ def to_readable_type(var) -> str:
         return "[]"
     if var == None:
         return "Undefined"
-    print(type(var))
+    if var == stellaParser.SuccContext or isinstance(var, stellaParser.SuccContext):
+        return "Succ"
+    #print(type(var), "!!")
     return str(var)
 
 class ScopePair():
     var_type: ParserRuleContext
     params: List[ParserRuleContext]
+    return_type: ParserRuleContext
     def __init__(self, var_type: ParserRuleContext = None, params: List[ParserRuleContext] = None):
         self.var_type = var_type
         self.params = params
+        if is_a_function(var_type):
+            if type(var_type) == stellaParser.SuccContext or type(var_type) == stellaParser.PredContext :
+                self.return_type = stellaParser.TypeNatContext
+                self.params = [stellaParser.TypeNatContext]
+            elif type(var_type) == stellaParser.AbstractionContext:
+                self.params = var_type.paramDecls
+                for i in range(len(self.params)):
+                    self.params[i] = handle_expr_context(self.params[i])
+                self.return_type = handle_expr_context(var_type.returnExpr)
+            elif type(var_type) == stellaParser.TypeFunContext:
+                self.params = var_type.paramTypes
+                for i in range(len(self.params)):
+                    self.params[i] = handle_expr_context(self.params[i])
+                self.return_type = handle_expr_context(var_type.returnType)
+            elif type(var_type) == stellaParser.DeclFunContext:
+                self.params = var_type.paramDecls
+                for i in range(len(self.params)):
+                    self.params[i] = handle_expr_context(self.params[i])
+                self.return_type = handle_expr_context(var_type.returnType)
+            else:
+                self.return_type = var_type.returnType
+        else:
+            self.return_type = None
+        
         
 scope_stack: List[Dict[str, ScopePair]] = []
+
+def is_a_function(var: ParserRuleContext):
+    if type(var) in [stellaParser.DeclFunContext,
+                    stellaParser.TypeFunContext,
+                    stellaParser.SuccContext,
+                    stellaParser.PredContext,
+                    stellaParser.AbstractionContext]:
+        return True
+    return False
 
 def enter_scope():
     #print("+ scope")
@@ -95,14 +132,14 @@ def add_to_scope(name: str, var_type: ParserRuleContext):
         add_variable_to_scope(name, type(var_type))
 
 def add_variable_to_scope(name: str, var_type: ParserRuleContext, params: List[ParserRuleContext] = []):
-    print(f"Adding var to scope: '{name}' of type '{to_readable_type(var_type)}' with params '{to_readable_type(params)}'")
+    print(f"Adding var to scope: '{name}' of type '{to_readable_type(var_type)}'")
     if not scope_stack:
         enter_scope()
     #print(f"Scope id: {len(scope_stack) - 1}")
     scope_stack[-1][name] = ScopePair(var_type, params)
     
 def add_func_to_scope(name: str, var_type: ParserRuleContext, params: List[ParserRuleContext] = []):
-    print(f"Adding func to scope: '{name}' of type '{to_readable_type(var_type)}' with params '{to_readable_type(params)}'")
+    print(f"Adding func to scope: '{name}' of type '{to_readable_type(var_type)}' with params {to_readable_type(params)}")
     n = 2
     if type(var_type) != stellaParser.DeclFunContext:
         n = 1
@@ -126,18 +163,17 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             return stellaParser.TypeBoolContext
         
         case stellaParser.IfContext():
-            print(type(ctx.condition))
-            condition = handle_expr_context(cast(stellaParser.ExprContext, ctx.condition))
+            condition = handle_expr_context(ctx.condition)
             if condition is not stellaParser.TypeBoolContext:
                 raise ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(condition), to_readable_type(stellaParser.TypeBoolContext), ctx.getText())
-            thenExpr = handle_expr_context(cast(stellaParser.ExprContext, ctx.thenExpr))
-            elseExpr = handle_expr_context(cast(stellaParser.ExprContext, ctx.elseExpr))
+            thenExpr = handle_expr_context(ctx.thenExpr)
+            elseExpr = handle_expr_context(ctx.elseExpr)
             if thenExpr is not elseExpr:
                 raise ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(elseExpr), to_readable_type(thenExpr), ctx.getText())
             return thenExpr
         
         case stellaParser.VarContext():
-            name = cast(Token, ctx.name).text
+            name = ctx.name.text
             var_type = lookup_variable(name).var_type
             if var_type is None:
                 ERROR_UNDEFINED_VARIABLE(name)
@@ -147,32 +183,36 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             return handle_expr_context(ctx.expr())
             
         case stellaParser.ApplicationContext():
-            #TODO handle application to abstract function
-            func_type_actual = ctx.fun
-            if type(func_type_actual) == stellaParser.ApplicationContext or type(func_type_actual) == stellaParser.ParenthesisedExprContext:
-                func_type_actual = handle_expr_context(func_type_actual)
-            if type(func_type_actual) != stellaParser.TypeFunContext:
-                func_name = func_type_actual.getText()
-                looked_up_var = lookup_variable(func_name)
-                func_type_found = looked_up_var.var_type
-                print(f"Applying {ctx.args[0].getText()} to {func_name}")
-                if (not type(func_type_found) == stellaParser.DeclFunContext and
-                    not type(func_type_found) == stellaParser.TypeFunContext):
-                    NOT_A_FUNCTION(func_name, to_readable_type(func_type_found), ctx.getText())
-                if len(ctx.args) != len(looked_up_var.params):
-                    raise TypeError(f"Mismatch number of params, got '{len(ctx.args)}' expected '{len(looked_up_var.params)}' in '{func_name}'")
-                for i in range(len(ctx.args)):
-                    param1 = handle_expr_context(ctx.args[i])
-                    param2 = ""
-                    if (looked_up_var.params[i] in [stellaParser.TypeNatContext, stellaParser.TypeBoolContext]):
-                        param2 = looked_up_var.params[i]
-                    else:
-                        print((looked_up_var.params[i].getText()))
-                        param2 = handle_expr_context(looked_up_var.params[i])
-                    if param1 != param2:
-                        raise TypeError(f"Mismatch params.\n[{i}]Param of call '{func_name}':\nExpected\n'{param2.get("parametersTypes")[i]}'\ngot\n'{param1.get("parametersTypes")[i]}'")
-                return type(func_type_found.returnType)
-            return func_type_actual.returnType
+            func_type_actual = ctx
+            # applying to another application or expression in parenthesis
+            if (type(func_type_actual) == stellaParser.ApplicationContext
+                or type(func_type_actual) == stellaParser.ParenthesisedExprContext):
+                func_type_actual = handle_expr_context(ctx.fun)
+            func_to_apply = None
+            # applying to function from the scope
+            if type(func_type_actual) == stellaParser.VarContext:
+                func_to_apply = lookup_variable(func_type_actual.getText())
+                func_type_found = func_to_apply.var_type
+                if not is_a_function(func_type_found):
+                    NOT_A_FUNCTION(func_type_actual.getText(), to_readable_type(func_type_found), ctx.getText())
+            # context is given, no scope needed
+            elif type(func_type_actual) == stellaParser.SuccContext or type(func_type_actual) == stellaParser.PredContext:
+                func_to_apply = ScopePair(func_type_actual, [stellaParser.TypeNatContext])
+            elif (type(func_type_actual) == stellaParser.AbstractionContext
+                or type(func_type_actual) == stellaParser.DeclFunContext):
+                func_to_apply = ScopePair(func_type_actual, [handle_expr_context(paramDecl) for paramDecl in func_type_actual.paramDecls])
+            elif type(func_type_actual) == stellaParser.TypeFunContext:
+                func_to_apply = ScopePair(func_type_actual, func_type_actual.paramTypes)
+            else:
+                # case not handled yet, TODO: retract unhandled function
+                NOT_A_FUNCTION(to_readable_type(ctx.fun.getText()), to_readable_type(func_type_actual), ctx.getText())
+            print(f"Applying {ctx.args[0].getText()} to {func_type_actual.getText()}")
+            for i in range(len(ctx.args)):
+                param1 = handle_expr_context(ctx.args[i])
+                param2 = handle_expr_context(func_to_apply.params[i])
+                if param1 != param2:
+                    ERROR_UNEXPECTED_TYPE_FOR_PARAMETER(to_readable_type(param1), to_readable_type(param2), ctx.getText())
+            return func_to_apply.return_type
         
         case stellaParser.SuccContext():
             n_type = handle_expr_context(ctx.n)
@@ -213,20 +253,13 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
         
         case _:
             if (ctx == stellaParser.TypeNatContext or 
-                ctx == stellaParser.TypeBoolContext):
+                ctx == stellaParser.TypeBoolContext or
+                type(ctx) == stellaParser.TypeFunContext):
                 return ctx
             if (type(ctx) == stellaParser.TypeNatContext or 
                 type(ctx) == stellaParser.TypeBoolContext):
                 return type(ctx)
-            if (type(ctx) == stellaParser.TypeFunContext):
-                param_types = []
-                for paramType in ctx.paramTypes:
-                    param_types.append(paramType)
-                return_type = handle_expr_context(ctx.returnType)
-                return {
-                    "parametersTypes": param_types,
-                    "returnType": return_type,
-                }
+            #print(type(ctx))
             raise RuntimeError("unsupported syntax")
 
 
@@ -237,16 +270,31 @@ def handle_decl_context(ctx: stellaParser.DeclContext):
             print("_________________\n")
             print("DECLARING FUNCTION", name.text)
             print("_________________")
-            returnType = cast(stellaParser.ExprContext, ctx.returnExpr)
             enter_scope()
             add_to_scope(name.text, ctx)
-            handle_expr_context(returnType)
+            handled_return_expr = handle_expr_context(ctx.returnExpr)
+            return_type = ctx.returnType
+            if not is_a_function(return_type):
+                return_type = type(return_type)
+            if not compare_stuff(handled_return_expr, return_type):
+                ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(handled_return_expr), to_readable_type(return_type), ctx.getText())
             exit_scope()
             print()
         case stellaParser.DeclTypeAliasContext():
             raise RuntimeError("unsupported syntax")
         case _:
             raise RuntimeError("unsupported syntax")
+        
+
+def compare_stuff(stuff1, stuff2) -> bool:
+    if is_a_function(stuff1) and is_a_function(stuff2):
+        stuff1 = ScopePair(stuff1)
+        stuff2 = ScopePair(stuff2)
+        for i in range(len(stuff1.params)):
+            if not compare_stuff(stuff1.params[i], stuff2.params[i]):
+                return False
+        return compare_stuff(stuff1.returnType, stuff2.returnType)
+    return stuff1 == stuff2
 
 
 def handle_program_context(ctx: stellaParser.ProgramContext):
@@ -269,7 +317,7 @@ def main(argv):
         input_stream = FileStream(argv[1])
     else:
         #input_stream = StdinStream()
-        input_stream = FileStream("tests/ill-typed/-DONE-shadowed-variable-1.stella")
+        input_stream = FileStream("tests/well-typed/logical-operators.stella")
     lexer = stellaLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = stellaParser(stream)
