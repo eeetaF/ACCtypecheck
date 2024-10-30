@@ -16,7 +16,7 @@ def ERROR_UNDEFINED_VARIABLE(var: str):
     print(f"Text: Undefined variable '{var}'")
     sys.exit(1)
     
-def NOT_A_FUNCTION(var: str, var_type: str, context: str = ""):
+def ERROR_NOT_A_FUNCTION(var: str, var_type: str, context: str = ""):
     print("\nERROR: ERROR_NOT_A_FUNCTION")
     print(f"Text: Expected a function, but got '{var}' of type '{var_type}' when typechecking '{context}'")
     sys.exit(1)
@@ -186,7 +186,7 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
                 func_to_apply = lookup_variable(func_type_actual.getText())
                 func_type_found = func_to_apply.var_type
                 if not is_a_function(func_type_found):
-                    NOT_A_FUNCTION(func_type_actual.getText(), to_readable_type(func_type_found), ctx.getText())
+                    ERROR_NOT_A_FUNCTION(func_type_actual.getText(), to_readable_type(func_type_found), ctx.getText())
             # context is given, no scope needed
             elif type(func_type_actual) == stellaParser.SuccContext or type(func_type_actual) == stellaParser.PredContext:
                 func_to_apply = ScopePair(func_type_actual, [stellaParser.TypeNatContext])
@@ -197,7 +197,7 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
                 func_to_apply = ScopePair(func_type_actual, func_type_actual.paramTypes)
             else:
                 # case not handled yet, TODO: retract unhandled function
-                NOT_A_FUNCTION(to_readable_type(ctx.fun.getText()), to_readable_type(func_type_actual), ctx.getText())
+                ERROR_NOT_A_FUNCTION(to_readable_type(ctx.fun.getText()), to_readable_type(func_type_actual), ctx.getText())
             print(f"Applying {ctx.args[0].getText()} to {func_type_actual.getText()}")
             for i in range(len(ctx.args)):
                 param1 = handle_expr_context(ctx.args[i])
