@@ -41,8 +41,7 @@ def to_readable_type(var) -> str:
         return "Nat"
     if var == stellaParser.TypeBoolContext or isinstance(var, stellaParser.TypeBoolContext):
         return "Bool"
-    if (isinstance(var, Dict)
-        or isinstance(var, stellaParser.DeclFunContext)
+    if (isinstance(var, stellaParser.DeclFunContext)
         or isinstance(var, stellaParser.TypeFunContext)
         or isinstance(var, stellaParser.AbstractionContext)):
         return "Function"
@@ -118,16 +117,8 @@ def print_scope():
             print("params: ", scope[name].params)
         
 def add_to_scope(name: str, var_type: ParserRuleContext):
-    if isinstance(var_type, stellaParser.TypeFunContext):
-        params = var_type.paramTypes
-        for i in range(len(params)):
-            params[i] = handle_expr_context(params[i])
-        add_func_to_scope(name, var_type, params)
-    elif isinstance(var_type, stellaParser.DeclFunContext) or isinstance(var_type, stellaParser.AbstractionContext):
-        params = var_type.paramDecls
-        for i in range(len(params)):
-            params[i] = handle_expr_context(params[i])
-        add_func_to_scope(name, var_type, params)
+    if is_a_function(var_type):
+        add_func_to_scope(name, var_type)
     else:
         add_variable_to_scope(name, handle_expr_context(var_type))
 
@@ -136,7 +127,7 @@ def add_variable_to_scope(name: str, var_type: ParserRuleContext, params: List[P
     if not scope_stack:
         enter_scope()
     #print(f"Scope id: {len(scope_stack) - 1}")
-    scope_stack[-1][name] = ScopePair(var_type, params)
+    scope_stack[-1][name] = ScopePair(var_type)
     
 def add_func_to_scope(name: str, var_type: ParserRuleContext, params: List[ParserRuleContext] = []):
     print(f"Adding func to scope: '{name}' of type '{to_readable_type(var_type)}' with params {to_readable_type(params)}")
@@ -146,7 +137,7 @@ def add_func_to_scope(name: str, var_type: ParserRuleContext, params: List[Parse
     while len(scope_stack) < n:
         enter_scope()
     #print(f"Scope id: {len(scope_stack) - n}")
-    scope_stack[-n][name] = ScopePair(var_type, params)
+    scope_stack[-n][name] = ScopePair(var_type)
 
 def lookup_variable(name: str) -> ScopePair:
     for scope in reversed(scope_stack):
@@ -291,7 +282,6 @@ def handle_decl_context(ctx: stellaParser.DeclContext):
 
 def compare_stuff(stuff1, stuff2) -> bool:
     if is_a_function(stuff1) and is_a_function(stuff2):
-        print("GOT HERE")
         stuff1 = ScopePair(stuff1)
         stuff2 = ScopePair(stuff2)
         for i in range(len(stuff1.params)):
@@ -321,7 +311,7 @@ def main(argv):
         input_stream = FileStream(argv[1])
     else:
         #input_stream = StdinStream()
-        input_stream = FileStream("tests/ill-typed/-DONE-applying-non-function-1.stella")
+        input_stream = FileStream("tests/ill-typed/bad-squares-2.stella")
     lexer = stellaLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = stellaParser(stream)
