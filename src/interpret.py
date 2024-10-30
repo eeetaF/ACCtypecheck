@@ -129,7 +129,7 @@ def add_to_scope(name: str, var_type: ParserRuleContext):
             params[i] = handle_expr_context(params[i])
         add_func_to_scope(name, var_type, params)
     else:
-        add_variable_to_scope(name, type(var_type))
+        add_variable_to_scope(name, handle_expr_context(var_type))
 
 def add_variable_to_scope(name: str, var_type: ParserRuleContext, params: List[ParserRuleContext] = []):
     print(f"Adding var to scope: '{name}' of type '{to_readable_type(var_type)}'")
@@ -151,6 +151,7 @@ def add_func_to_scope(name: str, var_type: ParserRuleContext, params: List[Parse
 def lookup_variable(name: str) -> ScopePair:
     for scope in reversed(scope_stack):
         if name in scope:
+            print(f"looked up '{name}' of type '{to_readable_type(scope[name].var_type)}'")
             return scope[name]
     return ScopePair()
 
@@ -210,7 +211,7 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             for i in range(len(ctx.args)):
                 param1 = handle_expr_context(ctx.args[i])
                 param2 = handle_expr_context(func_to_apply.params[i])
-                if param1 != param2:
+                if not compare_stuff(param1, param2):
                     ERROR_UNEXPECTED_TYPE_FOR_PARAMETER(to_readable_type(param1), to_readable_type(param2), ctx.getText())
             return func_to_apply.return_type
         
@@ -244,12 +245,15 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
         
         case stellaParser.ParamDeclContext():
             param_name = ctx.name.text
-            param_type = ctx.paramType
+            param_type = handle_expr_context(ctx.paramType)
             add_to_scope(param_name, param_type)
             return param_type
         
         case stellaParser.ParenthesisedExprContext():
             return handle_expr_context(ctx.expr_)
+        
+        case stellaParser.TypeParensContext():
+            return ctx.type_
         
         case _:
             if (ctx == stellaParser.TypeNatContext or 
@@ -260,6 +264,7 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
                 type(ctx) == stellaParser.TypeBoolContext):
                 return type(ctx)
             #print(type(ctx))
+            #print(ctx.getText())
             raise RuntimeError("unsupported syntax")
 
 
@@ -273,9 +278,7 @@ def handle_decl_context(ctx: stellaParser.DeclContext):
             enter_scope()
             add_to_scope(name.text, ctx)
             handled_return_expr = handle_expr_context(ctx.returnExpr)
-            return_type = ctx.returnType
-            if not is_a_function(return_type):
-                return_type = type(return_type)
+            return_type = handle_expr_context(ctx.returnType)
             if not compare_stuff(handled_return_expr, return_type):
                 ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(handled_return_expr), to_readable_type(return_type), ctx.getText())
             exit_scope()
@@ -288,13 +291,14 @@ def handle_decl_context(ctx: stellaParser.DeclContext):
 
 def compare_stuff(stuff1, stuff2) -> bool:
     if is_a_function(stuff1) and is_a_function(stuff2):
+        print("GOT HERE")
         stuff1 = ScopePair(stuff1)
         stuff2 = ScopePair(stuff2)
         for i in range(len(stuff1.params)):
             if not compare_stuff(stuff1.params[i], stuff2.params[i]):
                 return False
-        return compare_stuff(stuff1.returnType, stuff2.returnType)
-    return stuff1 == stuff2
+        return compare_stuff(stuff1.return_type, stuff2.return_type)
+    return (stuff1 == stuff2)
 
 
 def handle_program_context(ctx: stellaParser.ProgramContext):
@@ -317,7 +321,7 @@ def main(argv):
         input_stream = FileStream(argv[1])
     else:
         #input_stream = StdinStream()
-        input_stream = FileStream("tests/well-typed/logical-operators.stella")
+        input_stream = FileStream("tests/ill-typed/-DONE-applying-non-function-1.stella")
     lexer = stellaLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = stellaParser(stream)
