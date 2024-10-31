@@ -182,14 +182,14 @@ def add_to_scope(name: str, var_type: ParserRuleContext):
         add_variable_to_scope(name, handle_expr_context(var_type))
 
 def add_variable_to_scope(name: str, var_type: ParserRuleContext, params: List[ParserRuleContext] = []):
-    print(f"Adding var to scope: '{name}' of type '{to_readable_type(var_type)}'")
+    print(f"Declaring variable '{name}' of type '{to_readable_type(var_type)}'")
     if not scope_stack:
         enter_scope()
     #print(f"Scope id: {len(scope_stack) - 1}")
     scope_stack[-1][name] = ScopePair(var_type)
     
 def add_func_to_scope(name: str, var_type: ParserRuleContext, params: List[ParserRuleContext] = []):
-    print(f"Adding func to scope: '{name}' of type '{to_readable_type(var_type)}'")
+    print(f"Declaring func '{name}' of type '{to_readable_type(var_type)}'")
     n = 2
     if type(var_type) != stellaParser.DeclFunContext:
         n = 1
@@ -200,7 +200,7 @@ def add_func_to_scope(name: str, var_type: ParserRuleContext, params: List[Parse
     enter_scope()
     
 def add_tuple_to_scope(name: str, var_type: ParserRuleContext, params: List[ParserRuleContext] = []):
-    print(f"Adding tuple to scope: '{name}' of type '{to_readable_type(type(var_type))}'")
+    print(f"Declaring tuple '{name}' of type '{to_readable_type(type(var_type))}'")
     if not scope_stack:
         enter_scope()
     scope_stack[-1][name] = ScopePair(var_type)
@@ -225,6 +225,7 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             return stellaParser.TypeBoolContext
         
         case stellaParser.IfContext():
+            print(f"Checking if: {ctx.getText()}")
             condition = handle_expr_context(ctx.condition)
             if condition is not stellaParser.TypeBoolContext:
                 raise ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(condition),
@@ -281,6 +282,7 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             return func_to_apply.return_type
         
         case stellaParser.SuccContext():
+            print(f"Applying {ctx.getText()}")
             n_type = handle_expr_context(ctx.n)
             if n_type is not stellaParser.TypeNatContext:
                 ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(n_type), to_readable_type(stellaParser.TypeNatContext), ctx.getText())
@@ -301,6 +303,7 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             return ctx
         
         case stellaParser.NatRecContext():
+            print(f"Applying {ctx.getText()}")
             n_type = handle_expr_context(ctx.n)
             if n_type != stellaParser.TypeNatContext:
                 raise TypeError("The first argument of 'Nat::rec' must be of type Nat")
@@ -327,6 +330,7 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             return stellaParser.TypeUnitContext
         
         case stellaParser.IsZeroContext():
+            print(f"Applying {ctx.getText()}")
             n_type = handle_expr_context(ctx.n)
             if n_type is not stellaParser.TypeNatContext:
                 ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(n_type),
@@ -474,7 +478,7 @@ def main(argv):
         input_stream = FileStream(argv[1])
     else:
         #input_stream = StdinStream()
-        input_stream = FileStream("tests/ill-typed/-DONE-argument-type-mismatch-2.stella")
+        input_stream = FileStream("tests/well-typed/-DONE-increment_twice.stella")
     lexer = stellaLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = stellaParser(stream)
