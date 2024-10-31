@@ -401,7 +401,7 @@ def main(argv):
         input_stream = FileStream(argv[1])
     else:
         #input_stream = StdinStream()
-        input_stream = FileStream("tests/ill-typed/-DONE-test-tuples-1.stella")
+        input_stream = FileStream("tests/well-typed/records-1.stella")
     lexer = stellaLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = stellaParser(stream)
