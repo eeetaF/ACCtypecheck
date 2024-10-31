@@ -419,6 +419,8 @@ def handle_decl_context(ctx: stellaParser.DeclContext):
             print("_________________")
             enter_scope()
             add_to_scope(name.text, ctx)
+            for localDecl in ctx.localDecls:
+                handle_decl_context(localDecl)
             handled_return_expr = handle_expr_context(ctx.returnExpr)
             return_type = handle_expr_context(ctx.returnType)
             if not compare_stuff(handled_return_expr, return_type):
@@ -478,7 +480,7 @@ def main(argv):
         input_stream = FileStream(argv[1])
     else:
         #input_stream = StdinStream()
-        input_stream = FileStream("tests/well-typed/-DONE-increment_twice.stella")
+        input_stream = FileStream("tests/well-typed/nested-funcs-1.stella")
     lexer = stellaLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = stellaParser(stream)
