@@ -46,6 +46,12 @@ def ERROR_UNEXPECTED_TUPLE_LENGTH(size1: int, size2: int):
     print(f"Text: Expected tuple length '{size1}' but got '{size2}'")
     sys.exit(1)
     
+def ERROR_UNEXPECTED_FIELD_ACCESS(var: str, context: str = ""):
+    print("\nERROR_UNEXPECTED_FIELD_ACCESS")
+    print(f"Text: Unexpected access to '{var}' when typechecking '{context}'")
+    sys.exit(1)
+
+
 def to_readable_type(var) -> str:
     if var == stellaParser.TypeNatContext or isinstance(var, stellaParser.TypeNatContext):
         return "Nat"
@@ -70,6 +76,8 @@ def to_readable_type(var) -> str:
         return "Tuple"
     if isinstance(var, stellaParser.RecordContext) or isinstance(var,stellaParser.TypeRecordContext):
         return "Record"
+    if isinstance(var, str):
+        return var
     print(type(var), "!!")
     return str(var)
 
@@ -282,13 +290,13 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             return stellaParser.TypeNatContext
         
         case stellaParser.AbstractionContext():
+            #TODO: sometimes handled twice, for some reason.
             enter_scope()
-            param_types = []
-            for paramDecl in ctx.paramDecls:
-                param_type = paramDecl.paramType
-                add_to_scope(paramDecl.name.text, param_type)
-                param_types.append(type(param_type))
-            handle_expr_context(ctx.returnExpr)
+            try:
+                for paramDecl in ctx.paramDecls:
+                    add_to_scope(paramDecl.name.text, handle_expr_context(paramDecl))
+                handle_expr_context(ctx.returnExpr)
+            except: pass
             exit_scope()
             return ctx
         
@@ -372,7 +380,15 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             for i in range(len(handled_left_part.fieldTypes)):
                 if (ctx.label.text == handled_left_part.fieldTypes[i].label.text):
                     return handle_expr_context(handled_left_part.fieldTypes[i].type_)
-            raise TypeError("Couldn't find a param with needed type")
+            ERROR_UNEXPECTED_FIELD_ACCESS(ctx.label.text, ctx.getText())
+            
+        case stellaParser.LetContext():
+            enter_scope()
+            for patternBinding in ctx.patternBindings:
+                add_to_scope(patternBinding.pat.name.text, handle_expr_context(patternBinding.rhs))
+            returnType = handle_expr_context(ctx.body)
+            exit_scope()
+            return returnType
         
         case _:
             if (ctx == stellaParser.TypeNatContext or 
@@ -458,7 +474,7 @@ def main(argv):
         input_stream = FileStream(argv[1])
     else:
         #input_stream = StdinStream()
-        input_stream = FileStream("tests/well-typed/records-1.stella")
+        input_stream = FileStream("tests/ill-typed/-DONE-argument-type-mismatch-2.stella")
     lexer = stellaLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = stellaParser(stream)
