@@ -36,6 +36,16 @@ def ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(var_type: str, expected_type: str, cont
     print(f"Text: Expected '{expected_type}' but got '{var_type}' when typechecking '{context}'")
     sys.exit(1)
     
+def ERROR_TUPLE_INDEX_OUT_OF_BOUNDS(var: str, size: int, index: int, context: str = ""):
+    print("\nERROR: ERROR_TUPLE_INDEX_OUT_OF_BOUNDS")
+    print(f"Text: Size of tuple '{var}' '{str(size)}' but got index '{index}' when typechecking '{context}'")
+    sys.exit(1)
+    
+def ERROR_UNEXPECTED_TUPLE_LENGTH(size1: int, size2: int):
+    print("\nERROR_UNEXPECTED_TUPLE_LENGTH")
+    print(f"Text: Expected tuple length '{size1}' but got '{size2}'")
+    sys.exit(1)
+    
 def to_readable_type(var) -> str:
     if var == stellaParser.TypeNatContext or isinstance(var, stellaParser.TypeNatContext):
         return "Nat"
@@ -53,14 +63,19 @@ def to_readable_type(var) -> str:
         return "Undefined"
     if var == stellaParser.SuccContext or isinstance(var, stellaParser.SuccContext):
         return "Succ"
-    #print(type(var), "!!")
+    if var == stellaParser.TypeUnitContext:
+        return "Unit"
+    if (var == stellaParser.TypeTupleContext or isinstance(var, stellaParser.TypeTupleContext)
+            or var == stellaParser.TupleContext or isinstance(var, stellaParser.TupleContext)):
+        return "Tuple"
+    print(type(var), "!!")
     return str(var)
 
 class ScopePair():
     var_type: ParserRuleContext
     params: List[ParserRuleContext]
     return_type: ParserRuleContext
-    def __init__(self, var_type: ParserRuleContext = None, params: List[ParserRuleContext] = None):
+    def __init__(self, var_type: ParserRuleContext = None, params: List[ParserRuleContext] = []):
         self.var_type = var_type
         self.params = params
         if is_a_function(var_type):
@@ -84,6 +99,16 @@ class ScopePair():
                 self.return_type = handle_expr_context(var_type.returnType)
             else:
                 self.return_type = var_type.returnType
+        elif isinstance(var_type, stellaParser.TypeTupleContext):
+            self.params = [None] * len(var_type.types)
+            for i in range(len(var_type.types)):
+                self.params[i] = handle_expr_context(var_type.types[i])
+            self.return_type = None
+        elif isinstance(var_type, stellaParser.TupleContext):
+            self.params = [None] * len(var_type.exprs)
+            for i in range(len(var_type.exprs)):
+                self.params[i] = handle_expr_context(var_type.exprs[i])
+            self.return_type = None
         else:
             self.return_type = None
         
@@ -96,6 +121,11 @@ def is_a_function(var: ParserRuleContext):
                     stellaParser.SuccContext,
                     stellaParser.PredContext,
                     stellaParser.AbstractionContext]:
+        return True
+    return False
+
+def is_a_tuple(var: ParserRuleContext):
+    if type(var) in [stellaParser.TypeTupleContext, stellaParser.TupleContext]:
         return True
     return False
 
@@ -119,6 +149,8 @@ def print_scope():
 def add_to_scope(name: str, var_type: ParserRuleContext):
     if is_a_function(var_type):
         add_func_to_scope(name, var_type)
+    elif isinstance(var_type, stellaParser.TypeTupleContext):
+        add_tuple_to_scope(name, var_type)
     else:
         add_variable_to_scope(name, handle_expr_context(var_type))
 
@@ -130,7 +162,7 @@ def add_variable_to_scope(name: str, var_type: ParserRuleContext, params: List[P
     scope_stack[-1][name] = ScopePair(var_type)
     
 def add_func_to_scope(name: str, var_type: ParserRuleContext, params: List[ParserRuleContext] = []):
-    print(f"Adding func to scope: '{name}' of type '{to_readable_type(var_type)}' with params {to_readable_type(params)}")
+    print(f"Adding func to scope: '{name}' of type '{to_readable_type(var_type)}'")
     n = 2
     if type(var_type) != stellaParser.DeclFunContext:
         n = 1
@@ -138,6 +170,13 @@ def add_func_to_scope(name: str, var_type: ParserRuleContext, params: List[Parse
         enter_scope()
     #print(f"Scope id: {len(scope_stack) - n}")
     scope_stack[-n][name] = ScopePair(var_type)
+    
+def add_tuple_to_scope(name: str, var_type: ParserRuleContext, params: List[ParserRuleContext] = []):
+    print(f"Adding tuple to scope: '{name}' of type '{to_readable_type(type(var_type))}'")
+    if not scope_stack:
+        enter_scope()
+    scope_stack[-1][name] = ScopePair(var_type)
+
 
 def lookup_variable(name: str) -> ScopePair:
     for scope in reversed(scope_stack):
@@ -246,16 +285,58 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
         case stellaParser.TypeParensContext():
             return ctx.type_
         
+        case stellaParser.TypeUnitContext():
+            return type(ctx)
+        
+        case stellaParser.ConstUnitContext():
+            return stellaParser.TypeUnitContext
+        
+        case stellaParser.IsZeroContext():
+            n_type = handle_expr_context(ctx.n)
+            if n_type is not stellaParser.TypeNatContext:
+                ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(n_type), to_readable_type(stellaParser.TypeNatContext), ctx.getText())
+            return stellaParser.TypeBoolContext
+        
+        case stellaParser.TupleContext():
+            for param in ctx.exprs:
+                handle_expr_context(param)
+            return ctx
+        
+        case stellaParser.TypeTupleContext():
+            return ctx
+        
+        case stellaParser.DotTupleContext():
+            found_tuple = ""
+            index = int(ctx.getText()[ctx.getText().find('.') + 1:])
+            length = 0
+            if type(ctx.expr_) == stellaParser.ApplicationContext:
+                found_tuple = lookup_variable(ctx.expr_.fun.getText())
+                length = len(found_tuple.params[0].types)
+            elif type(ctx.expr_) == stellaParser.VarContext:
+                found_tuple = lookup_variable(ctx.expr_.getText())
+                length = len(found_tuple.params)
+            
+            print(ctx.expr_.getText())
+            print(type(ctx.expr_))
+            print(ctx.getText())
+            print(found_tuple.params)
+            if index > length:
+                ERROR_TUPLE_INDEX_OUT_OF_BOUNDS(ctx.expr_.getText(), len(found_tuple.params), index, ctx.getText())
+            return handle_expr_context(found_tuple.params[index - 1])
+        
         case _:
             if (ctx == stellaParser.TypeNatContext or 
                 ctx == stellaParser.TypeBoolContext or
+                ctx == stellaParser.TypeUnitContext or
                 type(ctx) == stellaParser.TypeFunContext):
                 return ctx
             if (type(ctx) == stellaParser.TypeNatContext or 
+                type(ctx) == stellaParser.TypeUnitContext or
                 type(ctx) == stellaParser.TypeBoolContext):
                 return type(ctx)
-            #print(type(ctx))
-            #print(ctx.getText())
+            print(ctx)
+            print(type(ctx))
+            print(ctx.getText())
             raise RuntimeError("unsupported syntax")
 
 
@@ -288,6 +369,15 @@ def compare_stuff(stuff1, stuff2) -> bool:
             if not compare_stuff(stuff1.params[i], stuff2.params[i]):
                 return False
         return compare_stuff(stuff1.return_type, stuff2.return_type)
+    if is_a_tuple(stuff1) and is_a_tuple(stuff2):
+        stuff1 = ScopePair(stuff1)
+        stuff2 = ScopePair(stuff2)
+        if len(stuff1.params) != len(stuff2.params):
+            ERROR_UNEXPECTED_TUPLE_LENGTH(len(stuff2.params), len(stuff1.params))
+        for i in range(len(stuff1.params)):
+            if not compare_stuff(stuff1.params[i], stuff2.params[i]):
+                return False
+        return True
     return (stuff1 == stuff2)
 
 
@@ -311,7 +401,7 @@ def main(argv):
         input_stream = FileStream(argv[1])
     else:
         #input_stream = StdinStream()
-        input_stream = FileStream("tests/ill-typed/bad-squares-2.stella")
+        input_stream = FileStream("tests/ill-typed/-DONE-test-tuples-1.stella")
     lexer = stellaLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = stellaParser(stream)
