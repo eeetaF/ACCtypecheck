@@ -6,6 +6,11 @@ from antlr4 import FileStream, StdinStream, CommonTokenStream, Token, ParserRule
 from stella.stellaParser import stellaParser
 from stella.stellaLexer import stellaLexer
 
+def ERROR_AMBIGUOUS_SUM_TYPE(ctx: str=""):
+    print("\nERROR_AMBIGUOUS_SUM_TYPE")
+    print(f"Text: Ambiguous sum type in {ctx}")
+    sys.exit(1)
+
 def ERROR_MISSING_MAIN():
     print("\nERROR: ERROR_MISSING_MAIN")
     print("Text: Missing 'main' function")
@@ -78,6 +83,12 @@ def to_readable_type(var) -> str:
         return "Record"
     if isinstance(var, str):
         return var
+    if isinstance(var, stellaParser.TypeSumContext):
+        return "Sum"
+    if isinstance(var, stellaParser.InlContext):
+        return "Inl"
+    if isinstance(var, stellaParser.InrContext):
+        return "Inr"
     print(type(var), "!!")
     return str(var)
 
@@ -131,6 +142,9 @@ class ScopePair():
                 for i in range(len(var_type.fieldTypes)):
                     self.params[i] = handle_expr_context(var_type.fieldTypes[i])
                 self.return_type = None
+        elif (type(var_type) == stellaParser.TypeSumContext):
+            self.params = [handle_expr_context(var_type.left), handle_expr_context(var_type.right)]
+            self.return_type = None
         else:
             self.return_type = None
         
@@ -173,7 +187,7 @@ def print_scope():
             print("var_type: ", scope[name].var_type)
             print("params: ", scope[name].params)
         
-def add_to_scope(name: str, var_type: ParserRuleContext):
+def add_to_scope(name: str, var_type: ParserRuleContext = None):
     if is_a_function(var_type):
         add_func_to_scope(name, var_type)
     elif isinstance(var_type, stellaParser.TypeTupleContext):
@@ -237,7 +251,7 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
                 raise ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(elseExpr),
                                                            to_readable_type(thenExpr),
                                                            ctx.getText())
-            return thenExpr
+            return [thenExpr, elseExpr]
         
         case stellaParser.VarContext():
             name = ctx.name.text
@@ -279,6 +293,8 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
                 param1 = handle_expr_context(ctx.args[i])
                 param2 = handle_expr_context(func_to_apply.params[i])
                 if not compare_stuff(param1, param2):
+                    print(type(param1))
+                    print(type(param2))
                     ERROR_UNEXPECTED_TYPE_FOR_PARAMETER(to_readable_type(param1), to_readable_type(param2), ctx.getText())
             return func_to_apply.return_type
         
@@ -351,18 +367,23 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             found_tuple = ""
             index = int(ctx.getText()[ctx.getText().find('.') + 1:])
             length = 0
+            params = []
             if type(ctx.expr_) == stellaParser.ApplicationContext:
                 found_tuple = lookup_variable(ctx.expr_.fun.getText())
                 length = len(found_tuple.params[0].types)
+                sc = ScopePair(found_tuple.params[0])
+                params = sc.params
             elif type(ctx.expr_) == stellaParser.VarContext:
                 found_tuple = lookup_variable(ctx.expr_.getText())
                 length = len(found_tuple.params)
+                params = found_tuple.params
             elif type(ctx.expr_) == stellaParser.TupleContext:
                 found_tuple = ScopePair(ctx.expr_)
                 length = len(found_tuple.params)
+                params = found_tuple.params
             if index > length:
-                ERROR_TUPLE_INDEX_OUT_OF_BOUNDS(ctx.expr_.getText(), len(found_tuple.params), index, ctx.getText())
-            return handle_expr_context(found_tuple.params[index - 1])
+                ERROR_TUPLE_INDEX_OUT_OF_BOUNDS(ctx.expr_.getText(), len(params), index, ctx.getText())
+            return handle_expr_context(params[index - 1])
         
         case stellaParser.TypeRecordContext():
             for fieldtype in ctx.fieldTypes:
@@ -397,11 +418,40 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             exit_scope()
             return returnType
         
+        case stellaParser.TypeSumContext():
+            if not handle_expr_context(ctx.left) or not handle_expr_context(ctx.right):
+                ERROR_AMBIGUOUS_SUM_TYPE(ctx.getText())
+            return ctx
+        
+        case stellaParser.InlContext():
+            handle_expr_context(ctx.expr_)
+            return ctx
+        
+        case stellaParser.InrContext():
+            handle_expr_context(ctx.expr_)
+            return ctx
+        
+        case stellaParser.MatchContext():
+            got = handle_expr_context(ctx.expr_)
+            if not isinstance(got, stellaParser.TypeSumContext):
+                ERROR_AMBIGUOUS_SUM_TYPE(got.getText())
+            to_return = [None] * len(ctx.cases)
+            for i in range(len(ctx.cases)):
+                needed_type = ''
+                if type(ctx.cases[i].pattern_) == stellaParser.PatternInlContext:
+                    needed_type = handle_expr_context(got.left)
+                else:
+                    needed_type = handle_expr_context(got.right) 
+                add_to_scope(ctx.cases[i].pattern_.pattern_.name.text, needed_type)
+                to_return[i] = handle_expr_context(ctx.cases[i].expr_)
+            return to_return
+        
         case _:
             if (ctx == stellaParser.TypeNatContext or 
                 ctx == stellaParser.TypeBoolContext or
                 ctx == stellaParser.TypeUnitContext or
-                type(ctx) == stellaParser.TypeFunContext):
+                type(ctx) == stellaParser.TypeFunContext or
+                ctx == stellaParser.PatternVarContext):
                 return ctx
             if (type(ctx) == stellaParser.TypeNatContext or 
                 type(ctx) == stellaParser.TypeUnitContext or
@@ -409,6 +459,7 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
                 return type(ctx)
             print(ctx)
             print(type(ctx))
+            print(ctx.getText())
             raise RuntimeError("unsupported syntax")
 
 
@@ -459,6 +510,26 @@ def compare_stuff(stuff1, stuff2) -> bool:
             if not compare_stuff(stuff1.params[i], stuff2.params[i]):
                 return False
         return True
+    if (type(stuff1) in [stellaParser.InlContext, stellaParser.InrContext] and
+        type(stuff2) in [stellaParser.InlContext, stellaParser.InrContext]):
+        return True
+    if (type(stuff2) == stellaParser.TypeSumContext):
+        stuff2 = ScopePair(stuff2)
+        if not isinstance(stuff1, List):
+            #i = 0 if type(stuff1) == stellaParser.InlContext else 1
+            #got = handle_expr_context(stuff1.expr_)
+            #return compare_stuff(got, stuff2.params[i])
+            ERROR_AMBIGUOUS_SUM_TYPE(stuff1.getText())
+        for stuff in stuff1:            
+            i = 0 if type(stuff) == stellaParser.InlContext else 1
+            if not compare_stuff(stuff2.params[i], handle_expr_context(stuff.expr_)):
+                return False
+        return True
+    if isinstance(stuff1, List):
+        for stuff in stuff1:
+            if not compare_stuff(stuff, stuff2):
+                return False
+        return True
     return (stuff1 == stuff2)
 
 
@@ -476,13 +547,11 @@ def handle_program_context(ctx: stellaParser.ProgramContext):
 
 
 def main(argv):
-    if sys.version_info.major < 3 or sys.version_info.minor < 10:
-        raise RuntimeError('Python 3.10 or a more recent version is required.')
     if len(argv) > 1:
         input_stream = FileStream(argv[1])
     else:
         #input_stream = StdinStream()
-        input_stream = FileStream("tests/retake/5.stella")
+        input_stream = FileStream("tests/well-typed/sum-3.stella")
     lexer = stellaLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = stellaParser(stream)
