@@ -357,7 +357,9 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             elif type(ctx.expr_) == stellaParser.VarContext:
                 found_tuple = lookup_variable(ctx.expr_.getText())
                 length = len(found_tuple.params)
-
+            elif type(ctx.expr_) == stellaParser.TupleContext:
+                found_tuple = ScopePair(ctx.expr_)
+                length = len(found_tuple.params)
             if index > length:
                 ERROR_TUPLE_INDEX_OUT_OF_BOUNDS(ctx.expr_.getText(), len(found_tuple.params), index, ctx.getText())
             return handle_expr_context(found_tuple.params[index - 1])
@@ -470,7 +472,7 @@ def handle_program_context(ctx: stellaParser.ProgramContext):
     enter_scope()
     for decl in ctx.decls:
         handle_decl_context(decl)
-    print("All good fella")
+    print("Congrats, input program is well-typed, no retake today, fella")
 
 
 def main(argv):
@@ -480,7 +482,7 @@ def main(argv):
         input_stream = FileStream(argv[1])
     else:
         #input_stream = StdinStream()
-        input_stream = FileStream("tests/well-typed/nullary.stella")
+        input_stream = FileStream("tests/retake/5.stella")
     lexer = stellaLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = stellaParser(stream)
