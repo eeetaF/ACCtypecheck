@@ -232,7 +232,7 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
                                                            ctx.getText())
             thenExpr = handle_expr_context(ctx.thenExpr)
             elseExpr = handle_expr_context(ctx.elseExpr)
-            if thenExpr is not elseExpr:
+            if not compare_stuff(thenExpr, elseExpr):
                 raise ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(elseExpr),
                                                            to_readable_type(thenExpr),
                                                            ctx.getText())

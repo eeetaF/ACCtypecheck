@@ -14,8 +14,8 @@ def run_test(filepath, expected_exit_code):
     else:
         print(f"FAIL: {filepath}")
         print(f"Expected exit code {expected_exit_code}, got {result.returncode}")
-        print("Output:")
-        print(result.stderr.decode() if result.stderr else result.stdout.decode())
+        #print("Output:")
+        #print(result.stderr.decode() if result.stderr else result.stdout.decode())
 
 def main():
     # Test ill-typed files (expected to fail with exit code 1)
