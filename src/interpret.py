@@ -68,6 +68,8 @@ def to_readable_type(var) -> str:
     if (var == stellaParser.TypeTupleContext or isinstance(var, stellaParser.TypeTupleContext)
             or var == stellaParser.TupleContext or isinstance(var, stellaParser.TupleContext)):
         return "Tuple"
+    if isinstance(var, stellaParser.RecordContext) or isinstance(var,stellaParser.TypeRecordContext):
+        return "Record"
     print(type(var), "!!")
     return str(var)
 
@@ -99,16 +101,28 @@ class ScopePair():
                 self.return_type = handle_expr_context(var_type.returnType)
             else:
                 self.return_type = var_type.returnType
-        elif isinstance(var_type, stellaParser.TypeTupleContext):
-            self.params = [None] * len(var_type.types)
-            for i in range(len(var_type.types)):
-                self.params[i] = handle_expr_context(var_type.types[i])
-            self.return_type = None
-        elif isinstance(var_type, stellaParser.TupleContext):
-            self.params = [None] * len(var_type.exprs)
-            for i in range(len(var_type.exprs)):
-                self.params[i] = handle_expr_context(var_type.exprs[i])
-            self.return_type = None
+        elif (is_a_tuple(var_type)):
+            if isinstance(var_type, stellaParser.TypeTupleContext):
+                self.params = [None] * len(var_type.types)
+                for i in range(len(var_type.types)):
+                    self.params[i] = handle_expr_context(var_type.types[i])
+                self.return_type = None
+            elif isinstance(var_type, stellaParser.TupleContext):
+                self.params = [None] * len(var_type.exprs)
+                for i in range(len(var_type.exprs)):
+                    self.params[i] = handle_expr_context(var_type.exprs[i])
+                self.return_type = None
+        elif (is_a_record(var_type)):
+            if isinstance(var_type, stellaParser.RecordContext):
+                self.params = [None] * len(var_type.bindings)
+                for i in range(len(var_type.bindings)):
+                    self.params[i] = handle_expr_context(var_type.bindings[i])
+                self.return_type = None
+            else:
+                self.params = [None] * len(var_type.fieldTypes)
+                for i in range(len(var_type.fieldTypes)):
+                    self.params[i] = handle_expr_context(var_type.fieldTypes[i])
+                self.return_type = None
         else:
             self.return_type = None
         
@@ -126,6 +140,11 @@ def is_a_function(var: ParserRuleContext):
 
 def is_a_tuple(var: ParserRuleContext):
     if type(var) in [stellaParser.TypeTupleContext, stellaParser.TupleContext]:
+        return True
+    return False
+
+def is_a_record(var: ParserRuleContext):
+    if type(var) in [stellaParser.RecordContext, stellaParser.TypeRecordContext]:
         return True
     return False
 
@@ -170,12 +189,14 @@ def add_func_to_scope(name: str, var_type: ParserRuleContext, params: List[Parse
         enter_scope()
     #print(f"Scope id: {len(scope_stack) - n}")
     scope_stack[-n][name] = ScopePair(var_type)
+    enter_scope()
     
 def add_tuple_to_scope(name: str, var_type: ParserRuleContext, params: List[ParserRuleContext] = []):
     print(f"Adding tuple to scope: '{name}' of type '{to_readable_type(type(var_type))}'")
     if not scope_stack:
         enter_scope()
     scope_stack[-1][name] = ScopePair(var_type)
+    enter_scope()
 
 
 def lookup_variable(name: str) -> ScopePair:
@@ -183,6 +204,8 @@ def lookup_variable(name: str) -> ScopePair:
         if name in scope:
             print(f"looked up '{name}' of type '{to_readable_type(scope[name].var_type)}'")
             return scope[name]
+    print(f"Couldn't find name '{name}'")
+    print(scope_stack)
     return ScopePair()
 
 def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.StellatypeContext:
@@ -196,11 +219,15 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
         case stellaParser.IfContext():
             condition = handle_expr_context(ctx.condition)
             if condition is not stellaParser.TypeBoolContext:
-                raise ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(condition), to_readable_type(stellaParser.TypeBoolContext), ctx.getText())
+                raise ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(condition),
+                                                           to_readable_type(stellaParser.TypeBoolContext),
+                                                           ctx.getText())
             thenExpr = handle_expr_context(ctx.thenExpr)
             elseExpr = handle_expr_context(ctx.elseExpr)
             if thenExpr is not elseExpr:
-                raise ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(elseExpr), to_readable_type(thenExpr), ctx.getText())
+                raise ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(elseExpr),
+                                                           to_readable_type(thenExpr),
+                                                           ctx.getText())
             return thenExpr
         
         case stellaParser.VarContext():
@@ -261,7 +288,7 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
                 param_type = paramDecl.paramType
                 add_to_scope(paramDecl.name.text, param_type)
                 param_types.append(type(param_type))
-            return_type = handle_expr_context(ctx.returnExpr)
+            handle_expr_context(ctx.returnExpr)
             exit_scope()
             return ctx
         
@@ -294,7 +321,9 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
         case stellaParser.IsZeroContext():
             n_type = handle_expr_context(ctx.n)
             if n_type is not stellaParser.TypeNatContext:
-                ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(n_type), to_readable_type(stellaParser.TypeNatContext), ctx.getText())
+                ERROR_UNEXPECTED_TYPE_FOR_EXPRESSION(to_readable_type(n_type),
+                                                     to_readable_type(stellaParser.TypeNatContext),
+                                                     ctx.getText())
             return stellaParser.TypeBoolContext
         
         case stellaParser.TupleContext():
@@ -315,14 +344,35 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             elif type(ctx.expr_) == stellaParser.VarContext:
                 found_tuple = lookup_variable(ctx.expr_.getText())
                 length = len(found_tuple.params)
-            
-            print(ctx.expr_.getText())
-            print(type(ctx.expr_))
-            print(ctx.getText())
-            print(found_tuple.params)
+
             if index > length:
                 ERROR_TUPLE_INDEX_OUT_OF_BOUNDS(ctx.expr_.getText(), len(found_tuple.params), index, ctx.getText())
             return handle_expr_context(found_tuple.params[index - 1])
+        
+        case stellaParser.TypeRecordContext():
+            for fieldtype in ctx.fieldTypes:
+                handle_expr_context(fieldtype)
+            return ctx
+        
+        case stellaParser.RecordFieldTypeContext():
+            type_to_return = handle_expr_context(ctx.type_)
+            add_to_scope(ctx.label.text, type_to_return)
+            return type_to_return
+        
+        case stellaParser.RecordContext():
+            for binding in ctx.bindings:
+                handle_expr_context(binding)
+            return ctx
+        
+        case stellaParser.BindingContext():
+            return handle_expr_context(ctx.rhs)
+        
+        case stellaParser.DotRecordContext():
+            handled_left_part = handle_expr_context(ctx.expr_)
+            for i in range(len(handled_left_part.fieldTypes)):
+                if (ctx.label.text == handled_left_part.fieldTypes[i].label.text):
+                    return handle_expr_context(handled_left_part.fieldTypes[i].type_)
+            raise TypeError("Couldn't find a param with needed type")
         
         case _:
             if (ctx == stellaParser.TypeNatContext or 
@@ -374,6 +424,13 @@ def compare_stuff(stuff1, stuff2) -> bool:
         stuff2 = ScopePair(stuff2)
         if len(stuff1.params) != len(stuff2.params):
             ERROR_UNEXPECTED_TUPLE_LENGTH(len(stuff2.params), len(stuff1.params))
+        for i in range(len(stuff1.params)):
+            if not compare_stuff(stuff1.params[i], stuff2.params[i]):
+                return False
+        return True
+    if is_a_record(stuff1) and is_a_record(stuff2):
+        stuff1 = ScopePair(stuff1)
+        stuff2 = ScopePair(stuff2)
         for i in range(len(stuff1.params)):
             if not compare_stuff(stuff1.params[i], stuff2.params[i]):
                 return False
