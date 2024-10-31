@@ -273,7 +273,8 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             else:
                 # case not handled yet, TODO: retract unhandled function
                 ERROR_NOT_A_FUNCTION(to_readable_type(ctx.fun.getText()), to_readable_type(func_type_actual), ctx.getText())
-            print(f"Applying {ctx.args[0].getText()} to {func_type_actual.getText()}")
+            if (len(ctx.args) != 0):
+                print(f"Applying {ctx.args[0].getText()} to {func_type_actual.getText()}")
             for i in range(len(ctx.args)):
                 param1 = handle_expr_context(ctx.args[i])
                 param2 = handle_expr_context(func_to_apply.params[i])
@@ -406,7 +407,6 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
                 return type(ctx)
             print(ctx)
             print(type(ctx))
-            print(ctx.getText())
             raise RuntimeError("unsupported syntax")
 
 
@@ -480,7 +480,7 @@ def main(argv):
         input_stream = FileStream(argv[1])
     else:
         #input_stream = StdinStream()
-        input_stream = FileStream("tests/well-typed/nested-funcs-1.stella")
+        input_stream = FileStream("tests/well-typed/nullary.stella")
     lexer = stellaLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = stellaParser(stream)

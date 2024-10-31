@@ -1,0 +1,11 @@
+language core;
+extend with #nullary-functions;
+
+fn getFive() -> Nat {
+  return succ(succ(succ(succ(succ(0)))))
+}
+
+
+fn main(b : Bool) -> Nat {
+  return getFive()
+}
