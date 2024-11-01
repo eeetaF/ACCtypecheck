@@ -6,6 +6,16 @@ from antlr4 import FileStream, StdinStream, CommonTokenStream, Token, ParserRule
 from stella.stellaParser import stellaParser
 from stella.stellaLexer import stellaLexer
 
+def ERROR_NONEXHAUSTIVE_MATCH_PATTERNS(pattern: str, ctx: str = ""):
+    print("\nERROR_NONEXHAUSTIVE_MATCH_PATTERNS")
+    print(f"Text: Pattern '{pattern}' not matched when typechecking '{ctx}'")
+    sys.exit(1)
+    
+def ERROR_ILLEGAL_EMPTY_MATCHING(ctx: str =""):
+    print("\nERROR_ILLEGAL_EMPTY_MATCHING")
+    print(f"Text: Empty match when typechecking '{ctx}'")
+    sys.exit(1)
+
 def ERROR_AMBIGUOUS_SUM_TYPE(ctx: str=""):
     print("\nERROR_AMBIGUOUS_SUM_TYPE")
     print(f"Text: Ambiguous sum type in {ctx}")
@@ -435,15 +445,23 @@ def handle_expr_context(ctx: stellaParser.ExprContext) -> stellaParser.Stellatyp
             got = handle_expr_context(ctx.expr_)
             if not isinstance(got, stellaParser.TypeSumContext):
                 ERROR_AMBIGUOUS_SUM_TYPE(got.getText())
+            if len(ctx.cases) == 0:
+                ERROR_ILLEGAL_EMPTY_MATCHING(ctx.getText())
+            f_left = False
+            f_right = False
             to_return = [None] * len(ctx.cases)
             for i in range(len(ctx.cases)):
                 needed_type = ''
                 if type(ctx.cases[i].pattern_) == stellaParser.PatternInlContext:
                     needed_type = handle_expr_context(got.left)
+                    f_left = True
                 else:
                     needed_type = handle_expr_context(got.right) 
+                    f_right = True
                 add_to_scope(ctx.cases[i].pattern_.pattern_.name.text, needed_type)
                 to_return[i] = handle_expr_context(ctx.cases[i].expr_)
+            if not f_left or not f_right:
+                ERROR_NONEXHAUSTIVE_MATCH_PATTERNS("Inl()" if f_right else "Inr()", ctx.getText())
             return to_return
         
         case _:
@@ -551,7 +569,7 @@ def main(argv):
         input_stream = FileStream(argv[1])
     else:
         #input_stream = StdinStream()
-        input_stream = FileStream("tests/well-typed/sum-3.stella")
+        input_stream = FileStream("tests/ill-typed/-DONE-non-exhaustive.stella")
     lexer = stellaLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = stellaParser(stream)
